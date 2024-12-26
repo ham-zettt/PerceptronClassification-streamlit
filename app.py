@@ -5,21 +5,32 @@ import seaborn as sns
 import streamlit as st
 import matplotlib.pyplot as plt
 from streamlit_option_menu import option_menu
+
 from sklearn.model_selection import train_test_split, cross_val_predict, StratifiedKFold
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
-from sklearn.naive_bayes import GaussianNB
+from sklearn.impute import SimpleImputer
+from sklearn.naive_bayes import GaussianNB, BernoulliNB
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix, ConfusionMatrixDisplay, precision_score, recall_score, f1_score
 from sklearn.metrics import classification_report
+from sklearn.feature_selection import mutual_info_classif
+
+from sklearn.linear_model import Perceptron
+from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import LogisticRegression
+
+from collections import Counter
+from imblearn.over_sampling import SMOTE
+
 
 
 def main():
-    st.image("img/knn.png", width=100)
+    st.image("img/nn.jpg", width=100)
 
     with st.sidebar:
         page = option_menu("Pilih Halaman", [
-                           "Home", "Data Understanding", "Preprocessing", "Model", "Evaluasi", "Testing"], default_index=0)
+                           "Home", "Data Understanding", "Preprocessing", "Seleksi Fitur", "Model", "Evaluasi", "Testing"], default_index=0)
 
     if page == "Home":
         show_home()
@@ -27,6 +38,8 @@ def main():
         show_understanding()
     elif page == "Preprocessing":
         show_preprocessing()
+    elif page == "Seleksi Fitur":
+        seleksi_fitur()
     elif page == "Model":
         show_model()
     elif page == "Evaluasi":
@@ -34,23 +47,22 @@ def main():
     elif page == "Testing":
         show_testing()
 
-
 def show_home():
     st.title(
-        "Klasifikasi Penyakit Kanker Paru-Paru dengan menggunakan Metode K-Nearest Neighbors")
+        "Klasifikasi Penyakit Ginjal Kronis Menggunakan Metode Perceptron")
 
-    # Explain what is Decision Tree
-    st.header("Apa itu K-Nearest Neighbor?")
-    st.write("K-Nearest Neighbor (KNN) merupakan salah satu algoritma yang digunakan untuk memprediksi kelas atau kategori dari data baru berdasarkan mayoritas kelas dari tetangga terdekat")
+    # Explain what is Perceptron
+    st.header("Apa itu Perceptron?")
+    st.write("Perceptron adalah algoritma pembelajaran mesin yang digunakan untuk klasifikasi biner. Algoritma ini bekerja dengan cara menghitung bobot pada setiap fitur dan membuat keputusan berdasarkan hasil perhitungan tersebut.")
 
     # Explain the purpose of this website
     st.header("Tujuan Website")
-    st.write("Website ini bertujuan untuk memberikan pemahaman mengenai tahapan proses pengolahan data dan klasifikasi dengan menggunakan metode KNN.")
+    st.write("Website ini bertujuan untuk memberikan pemahaman mengenai tahapan proses pengolahan data dan klasifikasi dengan menggunakan metode Perceptron.")
 
     # Explain the data
     st.header("Data")
     st.write(
-        "Data yang digunakan adalah Dataset Penyakit Kanker Paru-Paru diambil dari website Kaggle.")
+        "Data yang digunakan adalah Dataset Penyakit Ginjal Kronis yang bertujuan untuk mengklasifikasikan apakah seseorang menderita penyakit ginjal kronis atau tidak.")
 
     # Explain the process of Decision Tree
     st.header("Tahapan Proses Klasifikasi K-Nearest Neighbor")
@@ -63,9 +75,9 @@ def show_home():
 
 def show_understanding():
     st.title("Data Understanding")
-    data = pd.read_csv("survey lung cancer.csv")
+    data = pd.read_csv("kidney_disease.csv")  # Pastikan file CSV sesuai dengan nama yang diunduh
 
-    st.header("Metadata dari dataset Penyakit Kanker Paru-Paru")
+    st.header("Metadata dari dataset Penyakit Ginjal Kronis")
     st.dataframe(data)
 
     col1, col2 = st.columns(2, vertical_alignment='top')
@@ -76,7 +88,7 @@ def show_understanding():
 
     with col2:
         st.write(
-            f"Terdapat {len(data['LUNG_CANCER'].unique())} Label Kelas, yaitu : {data['LUNG_CANCER'].unique()}")
+            f"Terdapat {len(data['classification'].unique())} Label Kelas, yaitu : {data['classification'].unique()}")
 
     st.markdown("---")
 
@@ -100,7 +112,8 @@ def show_understanding():
 
     st.markdown("---")
 
-    target_counts = data['LUNG_CANCER'].value_counts()
+    # Distribusi Target
+    target_counts = data['classification'].value_counts()
 
     st.header('Distribusi Target')
 
@@ -110,8 +123,8 @@ def show_understanding():
     ax.set_xlabel('Target')
     ax.set_ylabel('Jumlah')
 
-    st.write(f"Jumlah Kelas YES : {target_counts['YES']}")
-    st.write(f"Jumlah Kelas NO : {target_counts['NO']}")
+    st.write(f"Jumlah Kelas CKD (Chronic Kidney Disease) : {target_counts['ckd']}")
+    st.write(f"Jumlah Kelas NOT CKD (Non-Chronic Kidney Disease) : {target_counts['notckd']}")
 
     ax.set_xticks(range(len(target_counts.index)))
     ax.set_xticklabels(target_counts.index, rotation=0)
@@ -120,21 +133,21 @@ def show_understanding():
 
     st.markdown("---")
 
-    cat_var = ['GENDER', 'SMOKING', 'YELLOW_FINGERS', 'ANXIETY', 'PEER_PRESSURE',
-               'CHRONIC DISEASE', 'FATIGUE', 'ALLERGY', 'WHEEZING', 'ALCOHOL CONSUMING',
-               'COUGHING', 'SHORTNESS OF BREATH', 'SWALLOWING DIFFICULTY', 'CHEST PAIN']
+    # Fitur kategorikal yang relevan berdasarkan dataset
+    cat_var = ['age', 'bp', 'sg', 'al', 'su', 'rbc', 'pc', 'pcc', 'ba', 'bgr', 'bu', 'sc', 'sod', 
+               'pot', 'hemo', 'pcv', 'wc', 'rc', 'htn', 'dm', 'cad', 'appet', 'pe', 'ane']
 
-# Streamlit code to display the count plots
     st.header('Distribusi Fitur Kategorikal berdasarkan Target')
 
     for var in cat_var:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        sns.countplot(x=var, hue='LUNG_CANCER', data=data, ax=ax)
-        ax.set_title(f'Distribusi {var} berdasarkan Target')
-        ax.set_xlabel(var)
-        ax.set_ylabel('Jumlah')
+        if var != 'classification':  # Skip the target variable
+            fig, ax = plt.subplots(figsize=(8, 6))
+            sns.countplot(x=var, hue='classification', data=data, ax=ax)
+            ax.set_title(f'Distribusi {var} berdasarkan Target')
+            ax.set_xlabel(var)
+            ax.set_ylabel('Jumlah')
 
-        st.pyplot(fig)
+            st.pyplot(fig)
 
     st.markdown("---")
 
@@ -143,16 +156,6 @@ def show_understanding():
 
     # Menghitung korelasi menggunakan metode Spearman
     all_features_corr = numeric_data.corr(method='spearman')
-
-    # Definisikan fitur yang dipilih untuk korelasi
-    specific_features = ['AGE', 'SMOKING', 'YELLOW_FINGERS', 'ANXIETY',
-                         'PEER_PRESSURE', 'CHRONIC DISEASE', 'FATIGUE', 'ALLERGY',
-                         'WHEEZING', 'ALCOHOL CONSUMING', 'COUGHING', 'SHORTNESS OF BREATH',
-                         'SWALLOWING DIFFICULTY', 'CHEST PAIN']
-
-    # Menghitung korelasi untuk fitur yang dipilih
-    specific_features = numeric_data[specific_features].corr(
-        method='spearman')
 
     # Menampilkan Matriks Korelasi
     st.header('Correlation Matrices')
@@ -167,18 +170,19 @@ def show_understanding():
     plt.close(fig)
 
 
+
 def show_preprocessing():
     st.title("Preprocessing")
 
-    data = pd.read_csv("survey lung cancer.csv")
+    # Load the dataset
+    data = pd.read_csv("kidney_disease.csv")  # Ganti dengan nama file dataset yang sesuai
 
-    fitur_columns = ['AGE', 'GENDER', 'SMOKING', 'YELLOW_FINGERS', 'ANXIETY',
-                     'PEER_PRESSURE', 'CHRONIC DISEASE', 'FATIGUE', 'ALLERGY',
-                     'WHEEZING', 'ALCOHOL CONSUMING', 'COUGHING', 'SHORTNESS OF BREATH',
-                     'SWALLOWING DIFFICULTY', 'CHEST PAIN', 'LUNG_CANCER']
+    # Drop unnecessary columns
+    data = data.drop(columns=['id'], errors='ignore')  # Jika 'id' ada, akan dihapus
 
-    data = data.drop(
-        columns=[col for col in data.columns if col not in fitur_columns])
+    # Set the target column
+    target_column = 'classification'
+    data[target_column] = data[target_column].str.strip()  # Hapus spasi ekstra pada kolom target
 
     st.header("Memilih Atribut yang digunakan untuk Pemodelan")
     st.dataframe(data)
@@ -187,73 +191,134 @@ def show_preprocessing():
 
     st.markdown("---")
 
-    # Menampilkan bagian untuk mengecek dan menghapus data duplikat
-    st.header("Mengechek dan Menghapus Data Duplikat")
+    # Transformasi Data - Label Encoding untuk fitur kategorikal
+    data_categorical = data.drop(columns=[target_column]).select_dtypes(include=['object']).columns
+    label_encoders = {}
+    for col in data_categorical:
+        le = LabelEncoder()
+        data[col] = le.fit_transform(data[col].astype(str))
+        label_encoders[col] = le
 
-    # Mengecek jumlah data duplikat
-    duplikat_count = data.duplicated().sum()
-    st.write("Jumlah Data Terduplikasi :", duplikat_count)
-
-    # Menghapus data duplikat jika ada
-    if duplikat_count > 0:
-        data.drop_duplicates(inplace=True)
-        st.write("Data setelah menghapus duplikat :")
-        st.write("Jumlah Data :", len(data.axes[0]))
+    st.header("Label Encoding untuk Fitur Kategorikal")
+    for col in data_categorical:
+        st.write(f"Fitur {col} setelah Label Encoding :")
+        st.write(data[col].value_counts())
+        st.write(f"Jumlah Kelas 0 : {data[col].value_counts().get(0, 0)}")
+        st.write(f"Jumlah Kelas 1 : {data[col].value_counts().get(1, 0)}")
 
     st.markdown("---")
 
-    # Menampilkan bagian untuk Label Encoding
-    st.header("Label Encoding untuk Fitur Kategorikal")
+    # Mengatasi Missing Values
+    st.header("Mengatasi Missing Values")
 
-    # Melakukan encoding pada fitur kategorikal menggunakan LabelEncoder
-    label_encoder = LabelEncoder()
-    columns_to_encode = ['GENDER', 'SMOKING', 'YELLOW_FINGERS', 'ANXIETY', 'PEER_PRESSURE',
-                         'CHRONIC DISEASE', 'FATIGUE', 'ALLERGY', 'WHEEZING', 'ALCOHOL CONSUMING',
-                         'COUGHING', 'SHORTNESS OF BREATH', 'SWALLOWING DIFFICULTY', 'CHEST PAIN']
+    imputer_mean = SimpleImputer(strategy='mean')  # Untuk kolom numerik
+    imputer_mode = SimpleImputer(strategy='most_frequent')  # Untuk kolom kategorikal
 
-    for col in columns_to_encode:
-        if col in data.columns:
-            data[col] = label_encoder.fit_transform(data[col])
-            st.write(f"Fitur {col} setelah Label Encoding :")
-            st.write(data[col].value_counts())
-            st.write(f"Jumlah Kelas 0 : {data[col].value_counts().get(0, 0)}")
-            st.write(f"Jumlah Kelas 1 : {data[col].value_counts().get(1, 0)}")
+    # Kolom numerik
+    data_numeric = data.select_dtypes(include=['float64', 'int64']).columns
+    data[data_numeric] = imputer_mean.fit_transform(data[data_numeric])
 
-    # Menyimpan data setelah Label Encoding
-    st.session_state['encoded_data'] = data
+    # Kolom kategorikal
+    data_categorical = data.select_dtypes(include=['object']).columns
+    data[data_categorical] = imputer_mode.fit_transform(data[data_categorical])
+
+    st.write("Data setelah mengatasi missing values:")
+    st.dataframe(data)
 
     st.markdown("---")
 
     # Normalisasi Data menggunakan Min-Max Scaler
     st.header("Normalisasi Data menggunakan Min Max Scalar")
 
-    # Memisahkan fitur dan target
-    x = data.drop(['LUNG_CANCER'], axis=1)
-    y = data['LUNG_CANCER']
-
-    # Normalisasi data
     scaler = MinMaxScaler()
-    x_scaled = scaler.fit_transform(x)
+    data[data_numeric] = scaler.fit_transform(data[data_numeric])
 
-    x_scaled = pd.DataFrame(x_scaled, columns=x.columns)
+    st.write("Data setelah normalisasi:")
+    st.dataframe(data)
 
-    # Menampilkan data setelah normalisasi
-    st.dataframe(x_scaled)
+    # Menyimpan data yang telah diproses dalam session state
+    st.session_state['preprocessed_data'] = data
+    st.session_state['classification'] = data[target_column]
 
-    # Menyimpan data yang telah dinormalisasi dalam session state
-    st.session_state['preprocessed_data'] = x_scaled
-    st.session_state['LUNG_CANCER'] = y
+
+def seleksi_fitur():
+    if 'preprocessed_data' in st.session_state and 'classification' in st.session_state:
+        st.title("Seleksi Fitur Berdasarkan Information Gain dan Pembalancingan Data")
+
+        # Ambil data yang sudah diproses dan target dari session state
+        data = st.session_state['preprocessed_data']
+        target_column = 'classification'
+        y = st.session_state['classification']
+        
+        # Memisahkan fitur dan target
+        X = data
+        X[target_column] = y
+
+        # Menghitung Information Gain
+        information_gain = mutual_info_classif(X.drop(columns=[target_column]), y, discrete_features='auto')
+        
+        # Membuat DataFrame untuk menampilkan Information Gain
+        information_gain_df = pd.DataFrame({
+            'Feature': X.drop(columns=[target_column]).columns,
+            'Information Gain': information_gain
+        }).sort_values(by='Information Gain', ascending=False)
+
+        # Menampilkan Information Gain setiap fitur
+        st.header("Information Gain setiap fitur:")
+        st.dataframe(information_gain_df)
+
+        # Seleksi fitur yang memiliki Information Gain lebih besar dari threshold (0.2)
+        threshold = 0.2
+        selected_features = information_gain_df[information_gain_df['Information Gain'] > threshold]['Feature']
+        
+        st.header(f"Fitur yang dipilih (Information Gain > {threshold}):")
+        st.write(selected_features)
+
+        # Memilih data dengan fitur yang telah dipilih
+        X_selected = X[selected_features]
+
+        # Menambahkan kolom target kembali
+        data_modified = pd.concat([X_selected, y], axis=1)
+
+        # Melakukan Label Encoding pada kolom target
+        data_modified[target_column] = LabelEncoder().fit_transform(data_modified[target_column])
+
+        # Tampilkan data yang sudah dimodifikasi
+        st.header("Data yang Dimodifikasi dengan Fitur Terpilih:")
+
+        # Menyimpan data yang sudah dimodifikasi di session state
+        st.session_state['data_with_selected_features'] = data_modified
+
+        X_resampled, y_resampled = SMOTE(random_state=42).fit_resample(X_selected, y)
+
+        # Menggabungkan data yang telah dibalancing
+        balanced_data = pd.concat([pd.DataFrame(X_resampled, columns=X_selected.columns), pd.DataFrame(y_resampled, columns=[target_column])], axis=1)
+
+        # Tampilkan distribusi kelas setelah balancing
+        balanced_target_counts = Counter(balanced_data[target_column])
+        st.write(balanced_target_counts)
+
+        # Tampilkan data yang telah dibalancing
+        st.dataframe(balanced_data.head())
+
+        # Menyimpan data yang telah dibalancing di session state
+        st.session_state['balanced_data'] = data_modified
+
+    else:
+        st.write(":red[Pastikan bahwa data telah diproses terlebih dahulu di menu Preprocessing.]")
 
 
 def show_model():
     st.title("Testing Model")
 
     # Pastikan data telah ada di session state sebelum menampilkan model
-    if 'preprocessed_data' in st.session_state and 'LUNG_CANCER' in st.session_state:
+    if 'balanced_data' in st.session_state:
+        balanced_data = st.session_state['balanced_data']
         st.write("Data tersedia untuk model.")
-        X_scaled = st.session_state['preprocessed_data']
-        y = st.session_state['LUNG_CANCER']
-        combined_data = pd.concat([X_scaled, y.reset_index(drop=True)], axis=1)
+        X = balanced_data.drop(columns=['classification'])
+        y = balanced_data['classification']
+        
+        combined_data = pd.concat([X, y.reset_index(drop=True)], axis=1)
         st.dataframe(combined_data)
 
         st.markdown("---")
@@ -261,8 +326,7 @@ def show_model():
         st.header("Memecah menjadi data Training dan data Testing")
 
         # Memisahkan data training dan testing
-        X_train, X_test, y_train, y_test = train_test_split(
-            X_scaled, y, random_state=0, train_size=0.8, shuffle=True)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0, train_size=0.8, shuffle=True)
 
         # Menampilkan data training
         trained = pd.concat([X_train, y_train], axis=1)
@@ -277,228 +341,144 @@ def show_model():
         st.write("Jumlah Data : ", len(testing.axes[0]))
 
         st.markdown("---")
-
-        st.header("Testing menggunakan K = 7")
-
-        # Melakukan pelatihan dengan KNN dengan K=7
-        clf_KNN7 = KNeighborsClassifier(n_neighbors=7)
-        clf_KNN7.fit(X_train, y_train)
-
-        # Prediksi dan menampilkan hasil prediksi
-        y_pred_KNN7 = clf_KNN7.predict(X_test)
-        df_pred_KNN7 = pd.DataFrame(y_pred_KNN7, columns=["KNN7"])
-
-        # Membandingkan hasil prediksi dengan kelas yang sebenarnya
-        df_test = pd.DataFrame(y_test).reset_index(drop=True)
-
-        df_pred_combined = pd.concat([df_pred_KNN7, df_test], axis=1)
-        df_pred_combined.columns = ["KNN7", "Actual Class"]
-
-        st.dataframe(df_pred_combined)
-        st.session_state['y_pred'] = y_pred_KNN7
-        st.session_state['y_test'] = y_test
-
+    
     else:
-        st.write(
-            "### :red[Buka Menu Preprocessing terlebih dahulu jika halaman tidak menampilkan data]")
+        st.write(":red[Pastikan bahwa data telah diproses sebelumnya.]")
 
+
+# Fungsi untuk menampilkan confusion matrix
+def plot_confusion_matrix(cm, class_names):
+    fig, ax = plt.subplots(figsize=(6, 4))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=class_names, yticklabels=class_names)
+    ax.set_xlabel('Predicted Labels')
+    ax.set_ylabel('True Labels')
+    ax.set_title('Confusion Matrix')
+    plt.tight_layout()
+    st.pyplot(fig)
+
+def train_evaluate(X_train, X_test, y_train, y_test, model_type='perceptron'):
+    # Evaluasi model dan tampilkan confusion matrix
+    if model_type == 'perceptron':
+        model = Perceptron(max_iter=50, tol=1e-3)
+        model.fit(X_train, y_train)
+        y_pred = (model.predict(X_test) > 0.5).astype(int)
+    
+    elif model_type == 'naive_bayes':
+        model = GaussianNB()
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+    
+    elif model_type == 'logistic_regression':
+        model = LogisticRegression(max_iter=1000)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+
+    # Evaluasi akurasi
+    accuracy = accuracy_score(y_test, y_pred)
+    
+    # Confusion matrix
+    cm = confusion_matrix(y_test, y_pred)
+    
+    return accuracy, cm
 
 def show_evaluasi():
-    st.title("Evaluasi Metode KNN")
+    st.title("Evaluasi Model")
 
-    if 'y_pred' in st.session_state and 'y_test' in st.session_state:
+    st.markdown("---")
 
-        y_pred_KNN7 = st.session_state['y_pred']
-        y_test = st.session_state['y_test']
+    # Rumus Akurasi, Presisi, Recall, F1
+    st.write("### Rumus Untuk menentukan Akurasi, Recall, Presisi, dan F1 Score")
+    col1, col2 = st.columns(2)
 
-        # Confusion Matrix untuk KNN
-        unique_classes = y_test.unique()
-        c_matrix_knn = confusion_matrix(
-            y_test, y_pred_KNN7, labels=unique_classes)
+    with col1:
+        st.latex(r'Accuracy = \frac{TP + TN}{TP + TN + FP + FN}')
+        st.latex(r'Recall = \frac{TP}{TP + FN}')
 
-        st.write("### Confusion Matrix (KNN)")
-        fig, ax = plt.subplots()
-        ConfusionMatrixDisplay(confusion_matrix=c_matrix_knn,
-                               display_labels=unique_classes).plot(ax=ax)
-        plt.title("Confusion Matrix for KNN")
-        st.pyplot(fig)
+    with col2:
+        st.latex(r'Precision = \frac{TP}{TP + FP}')
+        st.latex(
+            r'F1 Score = 2 \cdot \frac{Precision \cdot Recall}{Precision + Recall}')
 
-        st.markdown("---")
+    st.markdown("---")
 
-        # Rumus Akurasi, Presisi, Recall, F1
-        st.write("### Rumus Untuk menentukan Akurasi, Recall, Presisi, dan F1 Score")
-        col1, col2 = st.columns(2)
+    # Pastikan data telah ada di session state sebelum menampilkan model
+    if 'balanced_data' in st.session_state:
+        data = st.session_state['balanced_data']
+        X = data.drop(columns=['classification'])
+        y = data['classification']
 
-        with col1:
-            st.latex(r'Accuracy = \frac{TP + TN}{TP + TN + FP + FN}')
-            st.latex(r'Recall = \frac{TP}{TP + FN}')
+        # Memisahkan data training dan testing
+        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0, train_size=0.8, shuffle=True)
 
-        with col2:
-            st.latex(r'Precision = \frac{TP}{TP + FP}')
-            st.latex(
-                r'F1 Score = 2 \cdot \frac{Precision \cdot Recall}{Precision + Recall}')
+        # Menampilkan data training dan testing
+        st.write("### Data Training dan Testing")
+        st.write("Jumlah Data Training: ", len(X_train))
+        st.write("Jumlah Data Testing: ", len(X_test))
 
-        st.markdown("---")
+        # Model evaluation
+        models = ['perceptron', 'naive_bayes', 'logistic_regression']
+        
+        for model_type in models:
+            st.write(f"### Evaluasi Model: {model_type.capitalize()}")
 
-        # Evaluasi Metode KNN
-        st.write("### Performance Metrics for KNN Model")
-        accuracy_knn = accuracy_score(y_test, y_pred_KNN7) * 100
-        precision_knn = precision_score(
-            y_test, y_pred_KNN7, average='weighted') * 100
-        recall_knn = recall_score(
-            y_test, y_pred_KNN7, average='weighted') * 100
-        f1_knn = f1_score(y_test, y_pred_KNN7, average='weighted') * 100
+            # Evaluasi model
+            accuracy, cm = train_evaluate(X_train, X_test, y_train, y_test, model_type=model_type)
+            st.write(f"Akurasi Model {model_type.capitalize()}: {accuracy:.4f}")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"#### Accuracy (KNN): {accuracy_knn:.2f}%")
-            st.write(f"#### Recall (KNN): {recall_knn:.2f}%")
-        with col2:
-            st.write(f"#### Precision (KNN): {precision_knn:.2f}%")
-            st.write(f"#### F1 Score (KNN): {f1_knn:.2f}%")
+            # Menampilkan confusion matrix
+            plot_confusion_matrix(cm, class_names=["Negative", "Positive"])
 
-        st.markdown("---")
-
-        # Memisahkan data training dan testing untuk Naive Bayes dan SVM
-        X_train, X_test, y_train, y_test = train_test_split(
-            st.session_state['preprocessed_data'], st.session_state['LUNG_CANCER'], random_state=0, train_size=0.8, shuffle=True)
-
-        # Evaluasi Metode Naive Bayes
-        st.title("Evaluasi Metode Naive Bayes")
-        model_nb = GaussianNB()
-        model_nb.fit(X_train, y_train)
-        y_pred_nb = model_nb.predict(X_test)
-
-        # Confusion Matrix untuk Naive Bayes
-        c_matrix_nb = confusion_matrix(
-            y_test, y_pred_nb, labels=unique_classes)
-        st.write("### Confusion Matrix (Naive Bayes)")
-        fig, ax = plt.subplots()
-        ConfusionMatrixDisplay(confusion_matrix=c_matrix_nb,
-                               display_labels=unique_classes).plot(ax=ax)
-        plt.title("Confusion Matrix for Naive Bayes")
-        st.pyplot(fig)
-
-        # Evaluasi Metode Naive Bayes
-        st.write("### Performance Metrics for Naive Bayes Model")
-        accuracy_nb = accuracy_score(y_test, y_pred_nb) * 100
-        precision_nb = precision_score(
-            y_test, y_pred_nb, average='weighted') * 100
-        recall_nb = recall_score(y_test, y_pred_nb, average='weighted') * 100
-        f1_nb = f1_score(y_test, y_pred_nb, average='weighted') * 100
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"#### Accuracy (Naive Bayes): {accuracy_nb:.2f}%")
-            st.write(f"#### Recall (Naive Bayes): {recall_nb:.2f}%")
-        with col2:
-            st.write(f"#### Precision (Naive Bayes): {precision_nb:.2f}%")
-            st.write(f"#### F1 Score (Naive Bayes): {f1_nb:.2f}%")
-
-        st.markdown("---")
-
-        # Evaluasi Metode SVM
-        st.title("Evaluasi Metode SVM")
-        model_svm = SVC(kernel='linear')
-        model_svm.fit(X_train, y_train)
-        y_pred_svm = model_svm.predict(X_test)
-
-        # Confusion Matrix untuk SVM
-        c_matrix_svm = confusion_matrix(
-            y_test, y_pred_svm, labels=unique_classes)
-        st.write("### Confusion Matrix (SVM)")
-        fig, ax = plt.subplots()
-        ConfusionMatrixDisplay(confusion_matrix=c_matrix_svm,
-                               display_labels=unique_classes).plot(ax=ax)
-        plt.title("Confusion Matrix for SVM")
-        st.pyplot(fig)
-
-        # Evaluasi Metode SVM
-        st.write("### Performance Metrics for SVM Model")
-        accuracy_svm = accuracy_score(y_test, y_pred_svm) * 100
-        precision_svm = precision_score(
-            y_test, y_pred_svm, average='weighted') * 100
-        recall_svm = recall_score(y_test, y_pred_svm, average='weighted') * 100
-        f1_svm = f1_score(y_test, y_pred_svm, average='weighted') * 100
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"#### Accuracy (SVM): {accuracy_svm:.2f}%")
-            st.write(f"#### Recall (SVM): {recall_svm:.2f}%")
-        with col2:
-            st.write(f"#### Precision (SVM): {precision_svm:.2f}%")
-            st.write(f"#### F1 Score (SVM): {f1_svm:.2f}%")
-
-        st.markdown("---")
+            st.markdown("---")
 
     else:
-        st.write(
-            "### :red[Buka Menu Model terlebih dahulu jika halaman tidak menampilkan data]")
+        st.write(":red[Pastikan bahwa data telah diproses sebelumnya.]")
+
+
 
 
 def show_testing():
     st.title("Testing Model")
-    st.header("Lung Cancer Prediction")
+    st.header("Chronic Kidney Disease Prediction")
 
     # Memuat model dan scaler
-    with open("model/knn_pickle.pkl", "rb") as r:
-        knnp = pickle.load(r)
+    with open("model/perceptron.pkl", "rb") as r:
+        perceptron_pickle = pickle.load(r)
 
-    with open("model/scaler_pickle.pkl", "rb") as s:
-        scaler = pickle.load(s)
+    with open("model/scaler.pkl", "rb") as s:
+        scaler_pickel = pickle.load(s)
 
     # Input data dari pengguna
-    gender = st.selectbox(
-        'Gender', [0, 1], format_func=lambda x: "Male" if x == 1 else "Female")
-    age = st.number_input('Age', min_value=0, max_value=120, step=1)
-    smoking = st.selectbox(
-        'Smoking', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    yellow_fingers = st.selectbox(
-        'Yellow Fingers', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    anxiety = st.selectbox(
-        'Anxiety', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    peer_pressure = st.selectbox(
-        'Peer Pressure', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    chronic_disease = st.selectbox(
-        'Chronic Disease', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    fatigue = st.selectbox(
-        'Fatigue', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    allergy = st.selectbox(
-        'Allergy', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    wheezing = st.selectbox(
-        'Wheezing', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    alcohol_consuming = st.selectbox(
-        'Alcohol Consuming', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    coughing = st.selectbox(
-        'Coughing', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    shortness_of_breath = st.selectbox(
-        'Shortness of Breath', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    swallowing_difficulty = st.selectbox('Swallowing Difficulty', [
-                                         0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    chest_pain = st.selectbox(
-        'Chest Pain', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-
+    hemo = st.number_input('Hemoglobin (hemo)', min_value=0.0, step=0.1)
+    pcv = st.number_input('Packed Cell Volume (pcv)', min_value=0, max_value=100, step=1)
+    rc = st.number_input('Red Blood Cells (rc)', min_value=0, max_value=10, step=1)
+    sg = st.number_input('Specific Gravity (sg)', min_value=1.00, max_value=1.50, step=0.01)
+    sc = st.number_input('Sodium Content (sc)', min_value=0, max_value=150, step=1)
+    al = st.number_input('Albumin (al)', min_value=1, max_value=5, step=1)
+    rbc = st.number_input('Red Blood Cell Count (rbc)', min_value=0, max_value=10, step=1)
+    sod = st.number_input('Sodium (sod)', min_value=0, max_value=200, step=1)
+    htn = st.selectbox('Hypertension (htn)', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
+    pot = st.number_input('Potassium (pot)', min_value=0, max_value=10, step=1)
+    dm = st.selectbox('Diabetes Mellitus (dm)', [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")  
+    
+    # Tombol untuk memulai prediksi
     if st.button('Predict'):
         # Menyiapkan data input
-        input_data = [[gender, age, smoking, yellow_fingers, anxiety, peer_pressure,
-                       chronic_disease, fatigue, allergy, wheezing, alcohol_consuming,
-                       coughing, shortness_of_breath, swallowing_difficulty, chest_pain]]
+        input_data = [[hemo, pcv, rc, sg, sc, al, rbc, sod, htn, pot, dm]]
 
         # Melakukan scaling pada data input
-        input_data_scaled = scaler.transform(input_data)
+        input_data_scaled = scaler_pickel.transform(input_data)
 
         # Prediksi menggunakan model
-        result = knnp.predict(input_data_scaled)
+        result = perceptron_pickle.predict(input_data_scaled)
 
-        # Menggunakan hasil prediksi langsung sebagai label
-        prediction = result[0]  # Hasil prediksi sudah berupa 'YES' atau 'NO'
+        # Menggunakan hasil prediksi untuk menentukan label
+        prediction = "Positive" if result[0] == 1 else "Negative"
 
         # Menampilkan hasil prediksi
-        st.subheader("Prediction Result:")
-        st.write(f"Lung Cancer Prediction: :blue[{prediction}]")
-
+        st.subheader("Hasil Prediksi: ")
+        st.write(f"Prediksi Penyakit Ginjal Kronis: :blue[{prediction}]")
 
 if __name__ == "__main__":
-    st.set_page_config(page_title="K-Nearest Neighbor Lung Cancer Prediction",
-                       page_icon="img/knn.png")
+    st.set_page_config(page_title="Klasifikasi Penyakit Ginjal Kronis Dengan Metode Perceptron",
+                       page_icon="img/nn.jpg")
     main()
